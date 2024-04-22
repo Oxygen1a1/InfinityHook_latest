@@ -36,9 +36,11 @@ NTSTATUS EtwHookManager::init()
 		status = this->__initilizer.start_syscall_trace();
 		if (!NT_SUCCESS(status)) break;
 
-		/**/
+		/*set value above 1*/
+
 		status = this->__initilizer.open_pmc_counter();
 		if(!NT_SUCCESS(status)) break;
+
 
 		if (this->__initilizer.HalPrivateDispatchTable == nullptr) {
 			status = STATUS_UNSUCCESSFUL;
@@ -115,8 +117,11 @@ void EtwHookManager::hk_halcollectpmccounters(void* ctx, unsigned long long trac
 {
 	//LOG_INFO("filter success! arg1->%llx,arg2->%llx\r\n", ctx, trace_buffer_end);
 	
-	EtwHookManager::get_instance()->stack_trace_to_syscall();
+	/*有时候中断也会走这个函数，这里判断一下IRQL 好像必定是DPC_LEVEL? 大于这个不行*/
+	if(KeGetCurrentIrql()<=DISPATCH_LEVEL)
+		EtwHookManager::get_instance()->stack_trace_to_syscall();
 	
+
 	return __orghalcollectpmccounters(ctx, trace_buffer_end);
 }
 
@@ -187,9 +192,90 @@ EtwHookManager::~EtwHookManager()
 
 }
 
+
+
 void EtwHookManager::stack_trace_to_syscall()
 {
+
+	//if (ExGetPreviousMode() == KernelMode)
+	//{
+	//	return;
+	//}
+
+	////
+	//// Extract the system call index (if you so desire).
+	////
+	////PKTHREAD CurrentThread = (PKTHREAD)__readgsqword(OFFSET_KPCR_CURRENT_THREAD);
+	////unsigned int SystemCallIndex = *(unsigned int*)((uintptr_t)CurrentThread + OFFSET_KTHREAD_SYSTEM_CALL_NUMBER);
+
+	//PVOID* StackMax = (PVOID*)__readgsqword(OFFSET_KPCR_RSP_BASE);
+
+
+	//PVOID* StackFrame = (PVOID*)_AddressOfReturnAddress();
+
+	////
+	//// First walk backwards on the stack to find the 2 magic values.
+	////
+	//for (PVOID* StackCurrent = StackMax;
+	//	StackCurrent > StackFrame;
+	//	--StackCurrent)
+	//{
+	//	// 
+	//	// This is intentionally being read as 4-byte magic on an 8
+	//	// byte aligned boundary.
+	//	//
+	//	PULONG AsUlong = (PULONG)StackCurrent;
+	//	if (*AsUlong != INFINITYHOOK_MAGIC_1)
+	//	{
+	//		continue;
+	//	}
+
+	//	// 
+	//	// If the first magic is set, check for the second magic.
+	//	//
+	//	--StackCurrent;
+
+	//	PUSHORT AsShort = (PUSHORT)StackCurrent;
+	//	if (*AsShort != INFINITYHOOK_MAGIC_2)
+	//	{
+	//		continue;
+	//	}
+
+	//	//
+	//	// Now we reverse the direction of the stack walk.
+	//	//
+	//	for (;
+	//		StackCurrent < StackMax;
+	//		++StackCurrent)
+	//	{
+	//		PULONGLONG AsUlonglong = (PULONGLONG)StackCurrent;
+
+	//		if (((uintptr_t)(*AsUlonglong) >= (uintptr_t)__KiSystemServiceRepeat &&
+	//			(uintptr_t)(*AsUlonglong) < (uintptr_t)((uintptr_t)__KiSystemServiceRepeat + (PAGE_SIZE * 2))))
+	//		{
+	//			record_syscall(StackCurrent);
+	//			break;
+	//			
+	//		}
+
+	//		//
+	//		// If you want to "hook" this function, replace this stack memory 
+	//		// with a pointer to your own function.
+	//		//
+	//		continue;
+	//	}
+
+	//	break;
+	//}
+
+
+	if (ExGetPreviousMode() == KernelMode)
+	{
+		return;
+	}
+
 	auto stack_max=(PVOID*)__readgsqword(0x1A8);
+
 	auto cur_stack = (PVOID*)_AddressOfReturnAddress();
 	constexpr auto magic1 = 0x501802ul;
 	constexpr auto magic2 = 0xf33ul;
@@ -206,13 +292,18 @@ void EtwHookManager::stack_trace_to_syscall()
 			break;
 		}
 
+		//__debugbreak();
+
 		/*
+		* 
+		*			max
+					...
+					...
 		cur_stack->	xxx
 					...
 					magic_number
 					...
 					syscall   <-先从上面开始遍历
-					stack_max
 		*/
 
 		/*开始遍历堆栈*/
@@ -251,14 +342,10 @@ void EtwHookManager::stack_trace_to_syscall()
 
 	} while (false);
 	
-	//clean up
-
 }
 
 void EtwHookManager::record_syscall(void** call_routine)
 {
-	//LOG_INFO("syscalled->%p\r\n", call_routine[9]);
-
 
 	auto hk_map=__hookmaps.find({ call_routine[9],nullptr });
 

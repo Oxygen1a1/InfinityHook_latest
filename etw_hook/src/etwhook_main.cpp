@@ -69,6 +69,7 @@ EXTERN_C NTSTATUS DriverEntry(PDRIVER_OBJECT drv,PUNICODE_STRING)
 	
 	status=EtwHookManager::get_instance()->init();
 
+	
 
 	EtwHookManager::get_instance()->add_hook(NtCreateFile, detour_NtCreateFile);
 	EtwHookManager::get_instance()->add_hook(NtClose, detour_NtClose);

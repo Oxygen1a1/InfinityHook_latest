@@ -11,6 +11,7 @@ class EtwInitilizer :public EtwBase
 public:
 
 	EtwInitilizer();
+
 	~EtwInitilizer();
 
 	NTSTATUS start_syscall_trace();
@@ -18,6 +19,7 @@ public:
 
 	/*打开这个 才会去HalPmcCounter函数执行*/
 	NTSTATUS open_pmc_counter();
+
 
 	unsigned char* get_EtwpMaxPmcCounter();
 

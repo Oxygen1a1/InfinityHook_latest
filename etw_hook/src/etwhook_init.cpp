@@ -1,5 +1,7 @@
 #include <etwhook_init.hpp>
 #include <kstl/ksystem_info.hpp>
+#include <etwhook_utils.hpp>
+#include <kstl/kpe_parse.hpp>
 
 #pragma warning(disable : 4201)
 
@@ -298,12 +300,28 @@ NTSTATUS EtwInitilizer::open_pmc_counter()
 		pmc_count_info->TraceHandle = ULongToHandle(logger_id)/*这个其实就是loggerid*/;
 		pmc_count_info->ProfileSource[0] = 1;/*随便填写*/
 
+		auto EtwpMaxPmcCounter=get_EtwpMaxPmcCounter();
+
+		auto org = (unsigned char)0;
+
+		if (MmIsAddressValid(EtwpMaxPmcCounter)) {
+
+			org = *EtwpMaxPmcCounter;
+
+			if (org <= 1) *EtwpMaxPmcCounter = 2;
+
+		}
+
 		status=ZwSetSystemInformation(SystemPerformanceTraceInformation, pmc_count_info, sizeof EVENT_TRACE_PROFILE_COUNTER_INFORMATION);
 		if (!NT_SUCCESS(status)) {
 			LOG_ERROR("failed to configure pmc counter,errcode=%x\r\n", status);
 			break;
 		}
 
+
+		if (MmIsAddressValid(EtwpMaxPmcCounter)) {
+			if (org <= 1) *EtwpMaxPmcCounter = org;
+		}
 
 		//然后设置PMC Event hookid只需要一个就行
 		pmc_event_info = kalloc<EVENT_TRACE_SYSTEM_EVENT_INFORMATION>(NonPagedPool);
@@ -333,6 +351,41 @@ NTSTATUS EtwInitilizer::open_pmc_counter()
 	if (pmc_event_info) ExFreePool(pmc_event_info);
 
 	return status;
+}
+
+unsigned char* EtwInitilizer::get_EtwpMaxPmcCounter()
+{
+	auto ret = nullptr;
+	auto nt_img = (void*)nullptr;
+	auto nt_size = 0ul;
+
+	//PAGE:00000001409DB8DE 44 3B 05 57 57 37 00                          cmp     r8d, cs:EtwpMaxPmcCounter
+	//PAGE : 00000001409DB8E5 0F 87 EC 00 00 00                           ja      loc_1409DB9D7
+	//PAGE : 00000001409DB8EB 83 B9 2C 01 00 00 01                        cmp     dword ptr[rcx + 12Ch], 1
+	//PAGE:00000001409DB8F2 0F 84 DF 00 00 00                             jz      loc_1409DB9D7
+	//PAGE : 00000001409DB8F8 48 83 B9 F8 03 00 00 00                     cmp     qword ptr[rcx + 3F8h], 0
+	//PAGE:00000001409DB900 75 0D                                         jnz     short loc_1409DB90F
+
+	//windows 18362开始有的
+	if (kstd::SysInfoManager::getInstance()->getBuildNumber() < 18362) return ret;
+
+	nt_img = find_module_base(L"ntoskrnl.exe", &nt_size);
+
+	kstd::ParsePE ntos(nt_img, nt_size);
+
+	auto p = reinterpret_cast<unsigned char*>(ntos.patternFindSections((unsigned long long)nt_img, \
+		"\x44\x3b\x05\x00\x00\x00\x00\x0f\x87\x00\x00\x00\x00\x83\xb9\x00\x00\x00\x00\x01\x0f\x84\x00\x00\x00\x00\x48\x83\xb9\x00\x00\x00\x00\x00\x75\x00", \
+		"xxx????xx????xx????xxx????xxx????xx?", "PAGE"));
+
+
+	if (MmIsAddressValid(p)) {
+		auto offset = *reinterpret_cast<PLONG>(p + 3);
+		return p + 7 + offset;
+	}
+	else return nullptr;
+	
+
+	
 }
 
 #pragma warning(default : 4201)
