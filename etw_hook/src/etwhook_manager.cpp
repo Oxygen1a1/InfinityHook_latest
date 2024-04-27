@@ -87,6 +87,12 @@ NTSTATUS EtwHookManager::destory()
 
 	} while (false);
 	
+
+	LARGE_INTEGER delay_time = {};
+	delay_time.QuadPart = -10 * 1000000 * 2;
+	KeDelayExecutionThread(KernelMode, false, &delay_time);
+
+
 	return status;
 }
 
